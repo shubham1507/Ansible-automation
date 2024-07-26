@@ -1,0 +1,82 @@
+---
+- name: Install Grafana
+  hosts: grafana_prometheous
+  become: true
+  vars_files:
+    - grafana_vault.yml
+  tasks:
+    - name: Install required dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - software-properties-common
+          - wget
+        state: present
+        update_cache: yes
+
+    - name: Create directory for Grafana GPG key
+      file:
+        path: /etc/apt/keyrings/
+        state: directory
+        mode: '0755'
+
+    - name: Download and add Grafana GPG key
+      shell: wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/grafana.gpg > /dev/null
+      args:
+        creates: /etc/apt/keyrings/grafana.gpg
+
+    - name: Add Grafana APT repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main"
+        state: present
+        filename: grafana
+
+    - name: Update APT cache
+      apt:
+        update_cache: yes
+
+    - name: Install Grafana
+      apt:
+        name: grafana
+        state: present
+
+    - name: Ensure Grafana service is enabled and started
+      systemd:
+        name: grafana-server
+        enabled: yes
+        state: started
+
+    - name: Change Grafana admin password
+      command: grafana-cli admin reset-admin-password {{ grafana_admin_password }}
+      environment:
+        GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      notify: Restart Grafana
+
+    - name: Install firewalld
+      apt:
+        name: firewalld
+        state: present
+
+    - name: Ensure firewalld is running and enabled
+      service:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Open port 3000 for grafana
+      firewalld:
+        port: 3000/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: Reload firewalld to apply changes
+      command:
+        cmd: firewall-cmd --reload
+
+  handlers:
+    - name: Restart Grafana
+      systemd:
+        name: grafana-server
+        state: restarted
+

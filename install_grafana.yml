@@ -1,0 +1,88 @@
+---
+- name: Install Grafana
+  hosts: grafana_prometheous
+  become: true
+  tasks:
+    - name: Remove Grafana repository file if exists
+      file:
+        path: /etc/apt/sources.list.d/grafana.list
+        state: absent
+
+    - name: Remove Grafana repository from sources list
+      lineinfile:
+        path: /etc/apt/sources.list
+        regexp: '^deb .+https://apt.grafana.com'
+        state: absent
+
+    - name: Update and upgrade APT packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install required dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - software-properties-common
+          - wget
+        state: present
+
+    - name: Create directory for Grafana GPG key
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download and add Grafana GPG key
+      shell: |
+        wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
+      args:
+        creates: /etc/apt/keyrings/grafana.gpg
+
+    - name: Add Grafana APT repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main"
+        state: present
+        filename: grafana
+
+    - name: Update APT cache after adding Grafana repository
+      apt:
+        update_cache: yes
+      register: update_result
+      until: update_result is succeeded
+      retries: 3
+      delay: 30
+
+    - name: Install Grafana
+      apt:
+        name: grafana
+        state: present
+
+    - name: Ensure Grafana service is enabled and started
+      systemd:
+        name: grafana-server
+        enabled: yes
+        state: started
+
+    - name: Install firewalld
+      apt:
+        name: firewalld
+        state: present
+
+    - name: Ensure firewalld is running and enabled
+      service:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Open port 3000 for Grafana
+      firewalld:
+        port: 3000/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: Reload firewalld to apply changes
+      command:
+        cmd: firewall-cmd --reload
+
